@@ -30,10 +30,10 @@ POLLING_INTERVAL_SECONDS = 10
 # ROUTING PRINCIPAL
 # =========================
 PULSE_ROUTING = {
-    # "PincePFV01": pince_pf_handler,
-    # "PincePFV02": pince_pf_handler,
-    # "PincePFE03": pince_pf_handler,  
-    # # "SortieWagon": sortie_wagon_handler,
+    "PincePFV01": pince_pf_handler,
+    "PincePFV02": pince_pf_handler,
+    "PincePFE03": pince_pf_handler,  
+    "SortieWagon": sortie_wagon_handler,
 }
 
 class EventRouter:
@@ -71,8 +71,9 @@ class EventRouter:
 
     async def _handle(self, event):
         """
-        NEW BEHAVIOR: Add event to validation queue WITHOUT automatic validation.
+        NEW BEHAVIOR: Add event to validation queue WITHOUT automatic validation OR SAP interfacing.
         Events enter as PENDING_REVIEW for human correction BEFORE validation.
+        Events are NOT marked as Is_Interfaced=Y until AFTER human approval.
         """
         logger.info(
             f" DocEntry={event.doc_entry} "
@@ -88,13 +89,18 @@ class EventRouter:
                 return
 
             # Add event to validation queue as PENDING_REVIEW
-            # NO automatic SAP posting before human approval
+            # NO automatic validation - human will validate explicitly
             queued_event = validation_queue.add_event(event)
             validation_queue.set_status(event.doc_entry, EventStatus.PENDING_REVIEW)
             
             logger.info(
                 f"✅ DocEntry={event.doc_entry} added to queue - PENDING_REVIEW (awaiting human correction)"
             )
+
+            # CRITICAL: DO NOT mark as interfaced in SAP yet
+            # Events must remain visible in SAP until human approval
+            # Is_Interfaced=Y will only be set AFTER successful SAP posting in approve endpoint
+            logger.info(f"📋 DocEntry={event.doc_entry} kept in SAP (Is_Interfaced=N) until human approval")
 
             await websocket_manager.broadcast({
                 "type": "queue_event_created",
@@ -103,7 +109,7 @@ class EventRouter:
 
         except Exception as e:
             logger.exception(f"Erreur DocEntry={event.doc_entry}: {e}")
-            # Still mark as interfaced to prevent infinite loop
+            # Set error remark but DO NOT mark as interfaced
             await udt_service.set_error_remark(event.doc_entry, str(e))
 
 

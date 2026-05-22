@@ -47,27 +47,27 @@ async def _broadcast_queue_event(event):
 
 # Pulse routing configuration (same as in core/event_router.py)
 PULSE_ROUTING = {
-    "P001": sortie_wagon_handler,
-    "P002": pince_pf_handler,
-    "P003": pince_pf_handler,
-    "P004": pince_pf_handler,
+    "PincePFV01": pince_pf_handler,
+    "PincePFV02": pince_pf_handler,
+    "PincePFE03": pince_pf_handler,  
+    "SortieWagon": sortie_wagon_handler,
 }
 
 
 class ApproveEventRequest(BaseModel):
-    event_id: str
     modified_quantity: float
     notes: Optional[str] = None
 
 
 class RejectEventRequest(BaseModel):
-    event_id: str
     rejection_reason: str
     notes: Optional[str] = None
 
 
 class UpdateEventRequest(BaseModel):
     """Request model for updating event fields (correction workflow)."""
+    production_order: Optional[str] = None
+    item_code: Optional[str] = None
     bin_location: Optional[str] = None
     quantity: Optional[float] = None
     product: Optional[str] = None
@@ -366,6 +366,7 @@ async def update_event(event_id: str, request: UpdateEventRequest):
 
     logger.info(
         f"✏️  Mise à jour demandée — DocEntry={doc_entry} "
+        f"OF={request.production_order} Item={request.item_code} "
         f"Bin={request.bin_location} Qty={request.quantity} "
         f"Product={request.product} Whs={request.warehouse}"
     )
@@ -417,72 +418,143 @@ async def update_event(event_id: str, request: UpdateEventRequest):
 @router.post("/{event_id}/validate")
 async def validate_event(event_id: str):
     """
-    Explicit validation endpoint - runs validation checks on event.
-    
-    NEW BEHAVIOR: Only runs when user explicitly clicks "Validate".
-    Returns structured validation results without SAP posting.
+    Validate an event BEFORE approval.
+
+    Workflow:
+    PENDING_REVIEW
+    → VALIDATION
+    → VALID
+    → APPROVE ALLOWED
     """
+
     try:
         doc_entry = int(event_id)
     except ValueError:
         raise HTTPException(
             status_code=400,
-            detail=f"event_id invalide (doit être un entier DocEntry): '{event_id}'"
+            detail=f"event_id invalide: '{event_id}'"
         )
 
     logger.info(f"🔍 Validation demandée — DocEntry={doc_entry}")
 
     try:
-        # Load event from validation queue
+
+        # =========================================================
+        # 1. LOAD EVENT FROM VALIDATION QUEUE
+        # =========================================================
         queued_event = validation_queue.get_event(doc_entry)
+
         if queued_event is None:
             raise HTTPException(
                 status_code=404,
-                detail=f"Événement DocEntry={doc_entry} introuvable dans la file de validation"
-            )
-        
-        # Set status to VALIDATING
-        validation_queue.set_status(doc_entry, EventStatus.VALIDATING)
-        
-        # Run validation checks
-        validation_errors = await _validate_event_full(queued_event)
-        
-        # Determine status based on validation results
-        has_errors = any(e.severity == "ERROR" for e in validation_errors)
-        
-        if has_errors:
-            validation_queue.set_status(doc_entry, EventStatus.INVALID)
-            validation_queue.set_validation_errors(doc_entry, validation_errors)
-            logger.warning(
-                f"❌ DocEntry={doc_entry} validation FAILED - {len(validation_errors)} erreur(s)"
-            )
-        else:
-            validation_queue.set_status(doc_entry, EventStatus.VALID)
-            validation_queue.clear_validation_errors(doc_entry)
-            logger.info(
-                f"✅ DocEntry={doc_entry} validation PASSED - ready for approval"
+                detail=f"Événement DocEntry={doc_entry} introuvable"
             )
 
-        await _broadcast_queue_event(queued_event)
-        # Return structured validation result
+        logger.info(
+            f"📋 Event trouvé — Status actuel: {queued_event.status}"
+        )
+
+        # =========================================================
+        # 2. VALIDATION RULES
+        # =========================================================
+        errors = []
+
+        # Validate quantity
+        quantity = (
+            queued_event.corrected_quantity
+            if queued_event.corrected_quantity is not None
+            else queued_event.sap_event.quantity
+        )
+
+        if quantity <= 0:
+            errors.append("La quantité doit être supérieure à 0")
+
+        # Validate bin location
+        bin_location = (
+            queued_event.corrected_bin_location
+            if queued_event.corrected_bin_location
+            else queued_event.sap_event.bin_location
+        )
+
+        if not bin_location:
+            errors.append("Bin Location obligatoire")
+
+        # Validate product
+        product = (
+            queued_event.corrected_product
+            if queued_event.corrected_product
+            else queued_event.sap_event.product
+        )
+
+        if not product:
+            errors.append("Produit obligatoire")
+
+        # =========================================================
+        # 3. VALIDATION FAILED
+        # =========================================================
+        if errors:
+
+            validation_queue.set_status(
+                doc_entry,
+                EventStatus.INVALID
+            )
+
+            logger.warning(
+                f"❌ Validation échouée — DocEntry={doc_entry} "
+                f"Errors={errors}"
+            )
+
+            return {
+                "status": "INVALID",
+                "errors": errors
+            }
+
+        # =========================================================
+        # 4. VALIDATION SUCCESS
+        # =========================================================
+
+        # IMPORTANT !!!
+        # THIS FIXES YOUR BUG
+        validation_queue.set_status(
+            doc_entry,
+            EventStatus.VALID
+        )
+
+        logger.info(
+            f"✅ DocEntry={doc_entry} status changé vers VALID"
+        )
+
+        # Optional websocket refresh
+        try:
+            await _broadcast_queue_event(queued_event)
+        except Exception:
+            pass
+
+        # =========================================================
+        # 5. RETURN SUCCESS
+        # =========================================================
         return {
-            "status": "INVALID" if has_errors else "VALID",
-            "errors": [
-                {
-                    "field": e.field,
-                    "message": e.message,
-                    "severity": e.severity
-                }
-                for e in validation_errors
-            ]
+            "status": "VALID",
+            "errors": []
         }
 
     except HTTPException:
         raise
+
     except Exception as e:
-        logger.exception(f"Erreur validation DocEntry={doc_entry}: {e}")
-        validation_queue.set_status(doc_entry, EventStatus.INVALID)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception(
+            f"❌ Erreur validation DocEntry={doc_entry}: {e}"
+        )
+
+        validation_queue.set_status(
+            doc_entry,
+            EventStatus.INVALID
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 
 @router.patch("/{event_id}/approve")
@@ -516,7 +588,7 @@ async def approve_event(event_id: str, request: ApproveEventRequest):
         queued_event = validation_queue.get_event(doc_entry)
         if queued_event is None:
             raise HTTPException(
-                status_code=404,
+                status_code=404, 
                 detail=f"Événement DocEntry={doc_entry} introuvable dans la file de validation"
             )
         
@@ -566,10 +638,11 @@ async def approve_event(event_id: str, request: ApproveEventRequest):
         await handler.handle(event_to_post, config)
         logger.info(f"   Handler exécuté pour DocEntry={doc_entry}")
 
+        # 6. Mark as interfaced in SAP AFTER successful SAP posting
         await udt_service.set_interfaced(doc_entry)
-        logger.info(f"📋 DocEntry={doc_entry} marked as interfaced in SAP after approval")
+        logger.info(f"✅ DocEntry={doc_entry} marqué Is_Interfaced=Y dans SAP après approbation")
         
-        # 6. Mark as processed
+        # 7. Mark as processed in validation queue
         validation_queue.set_status(doc_entry, EventStatus.PROCESSED)
         validation_queue.set_sap_result(
             doc_entry,

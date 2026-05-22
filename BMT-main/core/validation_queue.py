@@ -26,7 +26,16 @@ class ValidationQueue:
         self._lock = None  # For thread safety in production
     
     def add_event(self, sap_event: ProductionEvent) -> QueuedEvent:
-        """Add a new SAP event to the validation queue."""
+        """Add an event to the queue. Returns existing event if already present."""
+        # Check if event already exists in queue (deduplication)
+        existing = self._events.get(sap_event.doc_entry)
+        if existing:
+            logger.info(
+                f"🔄 Event already in queue: DocEntry={sap_event.doc_entry} "
+                f"Status={existing.status.value} - skipping duplicate"
+            )
+            return existing
+        
         queued_event = QueuedEvent(sap_event=sap_event)
         self._events[sap_event.doc_entry] = queued_event
         logger.info(
