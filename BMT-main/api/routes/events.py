@@ -341,6 +341,36 @@ async def get_pending_events():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/metadata")
+async def get_events_metadata():
+    """
+    Return unique event types (pulse codes) and products from the validation queue.
+    Used to populate dropdown filters in the wizard frontend.
+    """
+    try:
+        queued_events = validation_queue.get_all_events()
+        
+        # Extract unique pulse codes (event types)
+        pulse_codes = sorted(list(set(e.sap_event.pulse for e in queued_events)))
+        
+        # Extract unique products
+        products = sorted(list(set(e.sap_event.product for e in queued_events)))
+        
+        logger.info(
+            f"📋 /events/metadata — {len(pulse_codes)} pulse codes, "
+            f"{len(products)} products"
+        )
+        
+        return {
+            "event_types": pulse_codes,
+            "products": products,
+        }
+    
+    except Exception as e:
+        logger.error(f"Erreur inattendue /events/metadata: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.patch("/{event_id}/update")
 async def update_event(event_id: str, request: UpdateEventRequest):
     """

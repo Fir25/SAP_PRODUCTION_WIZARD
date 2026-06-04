@@ -1,17 +1,10 @@
-import { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import Login from './pages/Login';
-import EventsSelectionPage from './components/EventsSelectionPage';
-import OFValidationWorkspace from './components/OFValidationWorkspace';
-import type { WmsEvent } from './components/EventsSelectionPage';
-
-type Page = 'selection' | 'validation';
+import ProductionWizard from './components/ProductionWizard';
 
 function AppContent() {
   const { user, loading } = useAuth();
-  const [currentPage, setCurrentPage] = useState<Page>('selection');
-  const [selectedEvents, setSelectedEvents] = useState<WmsEvent[]>([]);
 
   if (loading) {
     return (
@@ -25,26 +18,7 @@ function AppContent() {
     return <Login />;
   }
 
-  const handleEventsSelected = (events: WmsEvent[]) => {
-    setSelectedEvents(events);
-    setCurrentPage('validation');
-  };
-
-  const handleBackToSelection = () => {
-    setSelectedEvents([]);
-    setCurrentPage('selection');
-  };
-
-  if (currentPage === 'selection') {
-    return <EventsSelectionPage onEventsSelected={handleEventsSelected} />;
-  }
-
-  return (
-    <OFValidationWorkspace 
-      events={selectedEvents} 
-      onBack={handleBackToSelection}
-    />
-  );
+  return <ProductionWizard />;
 }
 
 function App() {

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, ChevronUp, AlertTriangle, CheckCircle, XCircle, AlertCircle, Edit2, Save, X, Check, PlayCircle } from 'lucide-react';
-import { fastApiService, UpdateEventRequest, ValidateEventResponse } from '../lib/fastapi';
+import { fastApiService, UpdateEventRequest } from '../lib/fastapi';
 
 export interface WmsEvent {
   id: string;
@@ -31,12 +31,16 @@ export interface WmsEvent {
 interface OFValidationWorkspaceProps {
   events: WmsEvent[];
   onBack: () => void;
+  onRefresh: () => void;
 }
 
 interface EventCorrection {
   eventId: string;
+  production_order?: string;
+  item_code?: string;
   modified_quantity: number;
   bin_location: string;
+  warehouse?: string;
   comments: string;
   accepted_warnings: string[];
 }
@@ -51,7 +55,7 @@ interface ValidationResult {
   }>;
 }
 
-export default function OFValidationWorkspace({ events, onBack }: OFValidationWorkspaceProps) {
+export default function OFValidationWorkspace({ events, onBack, onRefresh }: OFValidationWorkspaceProps) {
   const [selectedForApproval, setSelectedForApproval] = useState<Set<string>>(new Set());
   const [selectedForRejection, setSelectedForRejection] = useState<Set<string>>(new Set());
   const [expandedOFs, setExpandedOFs] = useState<Set<string>>(new Set());
@@ -119,8 +123,11 @@ export default function OFValidationWorkspace({ events, onBack }: OFValidationWo
     try {
       const updateRequest: UpdateEventRequest = {
         event_id: eventId,
+        production_order: correction.production_order,
+        item_code: correction.item_code,
         bin_location: correction.bin_location,
         quantity: correction.modified_quantity,
+        warehouse: correction.warehouse,
         notes: correction.comments,
       };
 
@@ -139,8 +146,11 @@ export default function OFValidationWorkspace({ events, onBack }: OFValidationWo
   };
 
   const validateEvent = async (eventId: string) => {
+    console.log(`🔍 Starting validation for event ${eventId}`);
     try {
       const result = await fastApiService.validateEvent(eventId);
+      console.log(`✅ Validation response received for event ${eventId}:`, result);
+      
       setValidationResults(prev => ({
         ...prev,
         [eventId]: {
@@ -149,8 +159,16 @@ export default function OFValidationWorkspace({ events, onBack }: OFValidationWo
           errors: result.errors,
         },
       }));
+      
+      console.log(`📊 Validation status updated in local state: ${result.status}`);
+      
+      // Refresh events from backend to get updated status
+      console.log(`🔄 Refreshing events from backend...`);
+      onRefresh();
+      
+      console.log(`✅ Events refreshed, approve button should now be ${result.status === 'VALID' ? 'enabled' : 'disabled'}`);
     } catch (error) {
-      console.error('Error validating event:', error);
+      console.error('❌ Error validating event:', error);
       // Handle error - show toast or alert
     }
   };
@@ -346,10 +364,8 @@ export default function OFValidationWorkspace({ events, onBack }: OFValidationWo
                     >
                       {/* Event Header */}
                       <div
-                        onClick={() => hasProblems(event) && startEditing(event.id)}
-                        className={`px-6 py-4 flex items-center justify-between ${
-                          hasProblems(event) ? 'cursor-pointer hover:bg-amber-50 dark:hover:bg-amber-900/20' : ''
-                        }`}
+                        onClick={() => startEditing(event.id)}
+                        className="px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50"
                       >
                         <div className="flex items-center gap-4">
                           <div className="flex items-center gap-2">
@@ -424,6 +440,40 @@ export default function OFValidationWorkspace({ events, onBack }: OFValidationWo
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                                 <div>
                                   <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1.5">
+                                    Production Order
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={corrections[event.id]?.production_order || event.production_order}
+                                    onChange={(e) => setCorrections(prev => ({
+                                      ...prev,
+                                      [event.id]: {
+                                        ...prev[event.id],
+                                        production_order: e.target.value,
+                                      }
+                                    }))}
+                                    className="w-full px-4 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1.5">
+                                    Item Code
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={corrections[event.id]?.item_code || event.item_code}
+                                    onChange={(e) => setCorrections(prev => ({
+                                      ...prev,
+                                      [event.id]: {
+                                        ...prev[event.id],
+                                        item_code: e.target.value,
+                                      }
+                                    }))}
+                                    className="w-full px-4 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1.5">
                                     Quantity ({event.unit_of_measure})
                                   </label>
                                   <input
@@ -451,6 +501,23 @@ export default function OFValidationWorkspace({ events, onBack }: OFValidationWo
                                       [event.id]: {
                                         ...prev[event.id],
                                         bin_location: e.target.value,
+                                      }
+                                    }))}
+                                    className="w-full px-4 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1.5">
+                                    Warehouse
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={corrections[event.id]?.warehouse || event.warehouse_code}
+                                    onChange={(e) => setCorrections(prev => ({
+                                      ...prev,
+                                      [event.id]: {
+                                        ...prev[event.id],
+                                        warehouse: e.target.value,
                                       }
                                     }))}
                                     className="w-full px-4 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"

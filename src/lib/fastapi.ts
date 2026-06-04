@@ -24,6 +24,8 @@ export interface RejectEventRequest {
 
 export interface UpdateEventRequest {
   event_id: string;
+  production_order?: string;
+  item_code?: string;
   bin_location?: string;
   quantity?: number;
   product?: string;
@@ -94,6 +96,15 @@ class FastApiService {
       return await apiService.post<ValidateEventResponse>(`/events/${eventId}/validate`, {});
     } catch (error) {
       console.error('Error validating event:', error);
+      throw error;
+    }
+  }
+
+  async getEventsMetadata(): Promise<{ event_types: string[]; products: string[] }> {
+    try {
+      return await apiService.get<{ event_types: string[]; products: string[] }>('/events/metadata');
+    } catch (error) {
+      console.error('Error fetching events metadata:', error);
       throw error;
     }
   }
