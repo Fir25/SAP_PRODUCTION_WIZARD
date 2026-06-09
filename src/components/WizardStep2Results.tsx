@@ -1,33 +1,8 @@
 import { useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatDate } from '../lib/date';
-
-export interface WmsEvent {
-  id: string;
-  external_id: string;
-  event_type: string;
-  status: string;
-  production_order: string;
-  item_code: string;
-  item_description: string;
-  original_quantity: number;
-  unit_of_measure: string;
-  machine_id: string;
-  machine_name: string;
-  warehouse_code: string;
-  bin_location: string;
-  validation_rules: Array<{
-    rule: string;
-    status: string;
-    message: string;
-  }>;
-  notes: string | null;
-  received_at: string;
-  created_at: string;
-  updated_at: string;
-  sap_date?: string;
-  sap_time?: string;
-}
+import { WmsEvent } from '../types';
+import { getValidationStatus, ValidationStatus } from '../lib/validation';
 
 interface WizardStep2ResultsProps {
   events: WmsEvent[];
@@ -55,25 +30,12 @@ export default function WizardStep2Results({
     onSelectAll();
   };
 
-  const getValidationStatus = (event: WmsEvent) => {
-    // Check if event has validation errors
-    if (event.validation_rules.some(rule => rule.status === 'ERROR')) {
-      return 'invalid';
-    }
-    // Check if event is VALID status (passed validation)
-    if (event.status === 'VALID') {
-      return 'valid';
-    }
-    // Check if there are warnings
-    if (event.validation_rules.some(rule => rule.status === 'WARNING')) {
-      return 'warning';
-    }
-    // Default to pending
-    return 'pending';
-  };
+  // Use shared validation utility
+  // (keeps UI and navigation logic consistent)
+  // getValidationStatus imported from ../lib/validation
 
   const getValidationIndicator = (event: WmsEvent) => {
-    const status = getValidationStatus(event);
+    const status: ValidationStatus = getValidationStatus(event);
     switch (status) {
       case 'valid':
         return (
@@ -96,13 +58,13 @@ export default function WizardStep2Results({
             <span className="text-xs font-medium text-amber-600 dark:text-amber-400">Warning</span>
           </div>
         );
-      default:
-        return (
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded-full bg-slate-400"></div>
-            <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Pending</span>
-          </div>
-        );
+      // default:
+      //   return (
+      //     <div className="flex items-center gap-2">
+      //       <div className="w-4 h-4 rounded-full bg-slate-400"></div>
+      //       <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Pending</span>
+      //     </div>
+      //   );
     }
   };
 
@@ -179,14 +141,14 @@ export default function WizardStep2Results({
                     <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide">
                       Date
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide">
+                    {/* <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide">
                       Time
-                    </th>
+                    </th> */}
                     <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide">
                       Product
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide">
-                      Event Type
+                      Event Type (Pulse)
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide">
                       Production Order (OF)
@@ -206,9 +168,8 @@ export default function WizardStep2Results({
                     return (
                       <tr
                         key={event.id}
-                        className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 transition ${
-                          selectedEvents.has(event.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''
-                        }`}
+                        className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 transition ${selectedEvents.has(event.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                          }`}
                       >
                         <td className="px-6 py-4">
                           <input
@@ -224,9 +185,9 @@ export default function WizardStep2Results({
                         <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400 whitespace-nowrap">
                           {formatDate(event.received_at)}
                         </td>
-                        <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                        {/* <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-400 whitespace-nowrap">
                           {event.sap_time || '-'}
-                        </td>
+                        </td> */}
                         <td className="px-6 py-4">
                           <div className="text-sm font-medium text-slate-800 dark:text-slate-200">
                             {event.item_code}
@@ -236,22 +197,21 @@ export default function WizardStep2Results({
                           </div>
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-800 dark:text-slate-200">
-                          {event.event_type}
+                          {event.pulse}
                         </td>
                         <td className="px-6 py-4">
                           <button
                             onClick={() => onEventClick(event)}
-                            className={`text-sm font-medium ${
-                              isInvalid
+                            className={`text-sm font-medium ${isInvalid
                                 ? 'text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 underline cursor-pointer'
                                 : 'text-slate-800 dark:text-slate-200 hover:text-slate-600 dark:hover:text-slate-400 cursor-pointer'
-                            }`}
+                              }`}
                           >
                             {event.production_order}
                           </button>
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-800 dark:text-slate-200">
-                          {event.original_quantity} {event.unit_of_measure}
+                          {event.modified_quantity ?? event.original_quantity} {event.unit_of_measure}
                         </td>
                         <td className="px-6 py-4 text-sm font-mono text-slate-800 dark:text-slate-200">
                           {event.bin_location}
@@ -275,7 +235,9 @@ export default function WizardStep2Results({
             Back to Filters
           </button>
           <button
-            onClick={onNext}
+            onClick={onNext
+              
+            }
             disabled={selectedEvents.size === 0}
             className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-slate-400 transition"
           >

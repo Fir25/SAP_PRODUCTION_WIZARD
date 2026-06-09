@@ -12,6 +12,7 @@ export interface ValidationRule {
 export interface WmsEvent {
   id: string;
   external_id: string | null;
+  pulse?: string; // shorthand event type used in frontend (e.g., PincePFE03)
   event_type: EventType;
   status: EventStatus;
   production_order: string;
@@ -29,6 +30,8 @@ export interface WmsEvent {
   sap_document_number: string | null;
   sap_response_code: string | null;
   sap_response_message: string | null;
+  sap_date?: string | null;
+  sap_time?: string | null;
   received_at: string;
   processed_at: string | null;
   created_at: string;

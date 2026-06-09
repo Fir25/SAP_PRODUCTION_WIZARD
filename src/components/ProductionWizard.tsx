@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { parseToDate } from '../lib/date';
 import { fastApiService } from '../lib/fastapi';
 import WizardStep1Filters, { SearchFilters } from './WizardStep1Filters';
-import WizardStep2Results, { WmsEvent } from './WizardStep2Results';
+import WizardStep2Results from './WizardStep2Results';
+import { WmsEvent } from '../types';
+import { getValidationStatus } from '../lib/validation';
 import WizardStep3Correction from './WizardStep3Correction';
 import WizardStep4Approval, { SapResult } from './WizardStep4Approval';
 import WizardStep5SapResult from './WizardStep5SapResult';
@@ -24,6 +26,10 @@ export default function ProductionWizard() {
     
     try {
       const events = await fastApiService.getPendingEvents();
+      
+      console.log('🔍 Filters selected:', filters);
+      console.log('📋 Events received from API:', events.length);
+      console.log('📋 Sample event:', events[0]);
       
       // Apply filters
       let filtered = [...events];
@@ -79,17 +85,21 @@ export default function ProductionWizard() {
         });
       }
 
-      // Event type filter
+      // Event type filter - compare with pulse field
       if (filters.eventType) {
-        filtered = filtered.filter(e => e.event_type === filters.eventType);
+        console.log('🔍 Filtering by event type (pulse):', filters.eventType);
+        filtered = filtered.filter(e => e.pulse === filters.eventType);
+        console.log('📋 Events after event type filter:', filtered.length);
       }
 
-      // Product filter
+      // Product filter - compare with item_code field
       if (filters.product) {
+        console.log('🔍 Filtering by product:', filters.product);
         filtered = filtered.filter(e =>
           e.item_code.toLowerCase().includes(filters.product.toLowerCase()) ||
           e.item_description.toLowerCase().includes(filters.product.toLowerCase())
         );
+        console.log('📋 Events after product filter:', filtered.length);
       }
 
       // Production order filter
@@ -99,6 +109,7 @@ export default function ProductionWizard() {
         );
       }
 
+      console.log('📋 Final filtered events:', filtered.length);
       setFilteredEvents(filtered);
       setCurrentStep('results');
     } catch (error) {
@@ -138,17 +149,22 @@ export default function ProductionWizard() {
 
   const handleStep2Next = () => {
     const selected = filteredEvents.filter(e => selectedEvents.has(e.id));
-    
-    // Only allow events with VALID status to proceed to approval
-    const validEvents = selected.filter(e => e.status === 'VALID');
-    
-    if (validEvents.length < selected.length) {
-      const invalidCount = selected.length - validEvents.length;
-      alert(`${invalidCount} selected event(s) are not validated. Please correct and validate all events before proceeding to approval.`);
+    // Use frontend business validation only (do NOT use backend e.status)
+    const invalidSelected = selected.filter(e => getValidationStatus(e) === 'invalid');
+
+    if (invalidSelected.length > 0) {
+      const ids = invalidSelected.map(e => e.id).join(', ');
+      alert(`Cannot proceed: the following selected event(s) are INVALID: ${ids}`);
       return;
     }
-    
-    setCorrectedEvents(validEvents);
+
+    // Allow both 'valid' and 'warning' to proceed
+    const proceeding = selected.filter(e => {
+      const s = getValidationStatus(e);
+      return s === 'valid' || s === 'warning';
+    });
+
+    setCorrectedEvents(proceeding);
     setCurrentStep('approval');
   };
 

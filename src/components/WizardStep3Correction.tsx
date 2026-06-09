@@ -5,12 +5,14 @@ import { fastApiService, UpdateEventRequest } from '../lib/fastapi';
 export interface WmsEvent {
   id: string;
   external_id: string;
+  pulse: string; // Event type from middleware (e.g., PincePFE03, SortieWagon)
   event_type: string;
   status: string;
   production_order: string;
   item_code: string;
   item_description: string;
   original_quantity: number;
+  modified_quantity: number | null;
   unit_of_measure: string;
   machine_id: string;
   machine_name: string;
@@ -26,7 +28,7 @@ export interface WmsEvent {
   created_at: string;
   updated_at: string;
   sap_date?: string;
-  sap_time?: string;
+  // sap_time?: string;
 }
 
 interface WizardStep3CorrectionProps {
@@ -37,14 +39,15 @@ interface WizardStep3CorrectionProps {
 }
 
 export default function WizardStep3Correction({ event, onSave, onBack, onNext }: WizardStep3CorrectionProps) {
+  console.log('EVENT RECEIVED', event);
   const [corrections, setCorrections] = useState({
     product: event.item_code,
     production_order: event.production_order,
-    quantity: event.original_quantity,
+    quantity: event.modified_quantity ?? event.original_quantity,
     bin_location: event.bin_location,
     warehouse: event.warehouse_code,
-    date: event.sap_date || '',
-    time: event.sap_time || '',
+    date: event.sap_date ? event.sap_date.split('T')[0] : '',
+    // time: event.sap_time || '',
     comments: event.notes || '',
   });
 
@@ -224,7 +227,7 @@ export default function WizardStep3Correction({ event, onSave, onBack, onNext }:
             </div>
 
             {/* Time */}
-            <div>
+            {/* <div>
               <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1.5">
                 Time
               </label>
@@ -234,7 +237,7 @@ export default function WizardStep3Correction({ event, onSave, onBack, onNext }:
                 onChange={(e) => setCorrections({ ...corrections, time: e.target.value })}
                 className="w-full px-4 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-            </div>
+            </div> */}
 
             {/* Comments */}
             <div className="md:col-span-2 lg:col-span-3">

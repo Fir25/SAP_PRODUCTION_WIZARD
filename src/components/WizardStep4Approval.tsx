@@ -1,34 +1,8 @@
 import { useState } from 'react';
 import { ChevronLeft, Check, X, AlertTriangle } from 'lucide-react';
 import { fastApiService, ApproveEventRequest, RejectEventRequest } from '../lib/fastapi';
-
-export interface WmsEvent {
-  id: string;
-  external_id: string;
-  event_type: string;
-  status: string;
-  production_order: string;
-  item_code: string;
-  item_description: string;
-  original_quantity: number;
-  unit_of_measure: string;
-  machine_id: string;
-  machine_name: string;
-  warehouse_code: string;
-  bin_location: string;
-  validation_rules: Array<{
-    rule: string;
-    status: string;
-    message: string;
-  }>;
-  notes: string | null;
-  received_at: string;
-  created_at: string;
-  updated_at: string;
-  sap_document_number?: string;
-  sap_response_code?: string;
-  sap_response_message?: string;
-}
+import { WmsEvent } from '../types';
+import { getValidationStatus } from '../lib/validation';
 
 interface WizardStep4ApprovalProps {
   events: WmsEvent[];
@@ -52,8 +26,12 @@ export default function WizardStep4Approval({ events, onBack, onNext }: WizardSt
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
-  // Only show events that are validated (status = VALID)
-  const validatedEvents = events.filter(e => e.status === 'VALID');
+  // `events` prop already contains only the events allowed to proceed from Step 2
+  // (ProductionWizard ensures invalid events are blocked). We still compute
+  // which of these are strictly 'valid' vs 'warning' for display.
+  const readyEvents = events;
+  const validatedEvents = readyEvents.filter(e => getValidationStatus(e) === 'valid');
+  const warningEvents = readyEvents.filter(e => getValidationStatus(e) === 'warning');
 
   const toggleEventSelection = (eventId: string, type: 'approval' | 'rejection') => {
     if (type === 'approval') {
@@ -185,8 +163,8 @@ export default function WizardStep4Approval({ events, onBack, onNext }: WizardSt
               <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">
                 Production Validation Wizard
               </h1>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                Step 4 of 5 - Approval Review ({validatedEvents.length} validated events)
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                Step 4 of 5 - Approval Review ({readyEvents.length} events ready — {validatedEvents.length} valid, {warningEvents.length} warnings)
               </p>
             </div>
             <div className="flex items-center gap-2">

@@ -109,7 +109,7 @@ export default function WizardStep1Filters({ onSearch, onReset }: WizardStep1Fil
             Search Filters
           </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Posting Date (Accounting Date) */}
             <div>
               <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1.5">
@@ -140,7 +140,9 @@ export default function WizardStep1Filters({ onSearch, onReset }: WizardStep1Fil
                 />
               </div>
             </div>
+            </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">  
             {/* Real Date */}
             <div>
               <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1.5">
@@ -156,7 +158,7 @@ export default function WizardStep1Filters({ onSearch, onReset }: WizardStep1Fil
                 />
               </div>
             </div>
-
+          
             <div>
               <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1.5">
                 Real Date - To
@@ -171,6 +173,9 @@ export default function WizardStep1Filters({ onSearch, onReset }: WizardStep1Fil
                 />
               </div>
             </div>
+            </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
 
             {/* Real Time */}
             <div>
@@ -202,6 +207,9 @@ export default function WizardStep1Filters({ onSearch, onReset }: WizardStep1Fil
                 />
               </div>
             </div>
+            </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
             {/* Event Type Dropdown */}
             <div>
