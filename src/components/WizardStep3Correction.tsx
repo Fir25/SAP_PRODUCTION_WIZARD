@@ -138,11 +138,10 @@ export default function WizardStep3Correction({ event, onSave, onBack, onNext }:
             <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">
               Event Details - {event.id}
             </h2>
-            <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full ${
-              event.status === 'VALID' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
-              event.status === 'ERROR' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
-              'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-            }`}>
+            <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full ${event.status === 'VALID' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                event.status === 'ERROR' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                  'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+              }`}>
               Status: {event.status}
             </span>
           </div>
@@ -175,17 +174,26 @@ export default function WizardStep3Correction({ event, onSave, onBack, onNext }:
             </div>
 
             {/* Quantity */}
-            <div>
-              <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1.5">
-                Quantity ({event.unit_of_measure})
-              </label>
-              <input
-                type="number"
-                value={corrections.quantity}
-                onChange={(e) => setCorrections({ ...corrections, quantity: parseFloat(e.target.value) })}
-                className="w-full px-4 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
+           <div>
+  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-1.5">
+    Quantity ({event.unit_of_measure})
+  </label>
+
+  <input
+    type="number"
+    value={corrections.quantity === 0 ? '' : corrections.quantity}
+    placeholder="Enter quantity"
+    onChange={(e) =>
+      setCorrections({
+        ...corrections,
+        quantity: e.target.value === ''
+          ? 0
+          : Number(e.target.value)
+      })
+    }
+    className="w-full px-4 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+  />
+</div>
 
             {/* Bin Location */}
             <div>
@@ -259,14 +267,13 @@ export default function WizardStep3Correction({ event, onSave, onBack, onNext }:
             <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-4">
               Validation Rules
             </h3>
-            
+
             {validationResult ? (
               <div className="space-y-3">
-                <div className={`flex items-center gap-2 p-4 rounded-lg ${
-                  validationResult.status === 'VALID' 
-                    ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800' 
+                <div className={`flex items-center gap-2 p-4 rounded-lg ${validationResult.status === 'VALID'
+                    ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800'
                     : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
-                }`}>
+                  }`}>
                   {validationResult.status === 'VALID' ? (
                     <CheckCircle size={20} className="text-emerald-600 dark:text-emerald-400" />
                   ) : (
@@ -276,17 +283,16 @@ export default function WizardStep3Correction({ event, onSave, onBack, onNext }:
                     {validationResult.status === 'VALID' ? 'Validation Passed - Status is VALID' : 'Validation Failed'}
                   </span>
                 </div>
-                
+
                 {validationResult.errors.length > 0 && (
                   <div className="space-y-2">
                     {validationResult.errors.map((error, idx) => (
                       <div
                         key={idx}
-                        className={`flex items-center justify-between p-3 rounded-lg bg-white dark:bg-slate-800 border ${
-                          error.severity === 'ERROR' 
-                            ? 'border-red-200 dark:border-red-800' 
+                        className={`flex items-center justify-between p-3 rounded-lg bg-white dark:bg-slate-800 border ${error.severity === 'ERROR'
+                            ? 'border-red-200 dark:border-red-800'
                             : 'border-amber-200 dark:border-amber-800'
-                        }`}
+                          }`}
                       >
                         <div className="flex items-center gap-2">
                           {error.severity === 'ERROR' ? (

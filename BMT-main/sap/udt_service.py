@@ -127,22 +127,27 @@ class UDTService:
                 f"Impossible de mettre à jour DocEntry={doc_entry} "
                 f"(HTTP {response.status_code}): {response.text}"
             )
+    @staticmethod
+    def safe_str(value):
+        if value is None:
+            return ""
+        s = str(value).strip()
+        return s
 
     @staticmethod
     def _parse_event(raw: dict) -> ProductionEvent:
         return ProductionEvent(
             doc_entry=raw.get("DocEntry", 0),
-            product=raw.get("U_Product", ""),
-            pulse=raw.get("U_Pulse", ""),
-            bin_location=raw.get("U_BinLocation", ""),
+            product=UDTService.safe_str(raw.get("U_Product")),
+            pulse=UDTService.safe_str(raw.get("U_Pulse")),
+            bin_location=UDTService.safe_str(raw.get("U_BinLocation")),
             quantity=float(raw.get("U_Quantity") or 0),
-            date=raw.get("U_Date", ""),
-            time=raw.get("U_Time", ""),
-            is_valid_user=raw.get("U_Is_Valid_User", "N"),
-            is_interfaced=raw.get("U_Is_Interfaced", "N"),
-            remark=raw.get("Remark", ""),
+            date=UDTService.safe_str(raw.get("U_Date") or ""),
+            time=UDTService.safe_str(raw.get("U_Time") or ""),
+            is_valid_user=UDTService.safe_str(raw.get("U_Is_Valid_User") or "N"),
+            is_interfaced=UDTService.safe_str(raw.get("U_Is_Interfaced") or "N"),
+            remark=UDTService.safe_str(raw.get("Remark") or ""),
         )
-
 
 class UDTReadError(Exception):
     pass

@@ -200,15 +200,16 @@ export default function WizardStep2Results({
                           {event.pulse}
                         </td>
                         <td className="px-6 py-4">
-                          <button
-                            onClick={() => onEventClick(event)}
-                            className={`text-sm font-medium ${isInvalid
-                                ? 'text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 underline cursor-pointer'
-                                : 'text-slate-800 dark:text-slate-200 hover:text-slate-600 dark:hover:text-slate-400 cursor-pointer'
-                              }`}
-                          >
-                            {event.production_order}
-                          </button>
+                         <button
+  onClick={() => onEventClick(event)}
+  className={`text-sm font-medium ${
+    isInvalid
+      ? 'text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 underline cursor-pointer'
+      : 'text-slate-800 dark:text-slate-200 hover:text-slate-600 dark:hover:text-slate-400 cursor-pointer'
+  }`}
+>
+  {event.production_order || 'No order'}
+</button>
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-800 dark:text-slate-200">
                           {event.modified_quantity ?? event.original_quantity} {event.unit_of_measure}
@@ -236,7 +237,7 @@ export default function WizardStep2Results({
           </button>
           <button
             onClick={onNext
-              
+
             }
             disabled={selectedEvents.size === 0}
             className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-slate-400 transition"
