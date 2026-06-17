@@ -15,7 +15,7 @@ export interface WmsEvent {
   pulse?: string; // shorthand event type used in frontend (e.g., PincePFE03)
   event_type: EventType;
   status: EventStatus;
-  production_order: string;
+  production_order?: string | null;
   item_code: string;
   item_description: string;
   original_quantity: number;
@@ -32,10 +32,16 @@ export interface WmsEvent {
   sap_response_message: string | null;
   sap_date?: string | null;
   sap_time?: string | null;
+  pulse_code?: string | null;
+  pulse_name?: string | null;
+  pulse_rubrique?: string | null;
+  pulse_uom?: string | null;
   received_at: string;
   processed_at: string | null;
   created_at: string;
   updated_at: string;
+  best_production_order?: string | null;
+  production_order_source?: string | null;
 }
 
 export interface AuditLog {

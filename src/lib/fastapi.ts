@@ -31,6 +31,7 @@ export interface UpdateEventRequest {
   product?: string;
   warehouse?: string;
   notes?: string;
+  of_numdoc?: string;
 }
 
 export interface ValidateEventResponse {
@@ -79,15 +80,25 @@ class FastApiService {
   async updateEvent(request: UpdateEventRequest): Promise<SapResponse> {
     try {
       return await apiService.patch<SapResponse>(`/events/${request.event_id}/update`, {
+        production_order: request.production_order,
+        of_numdoc: request.of_numdoc,
         bin_location: request.bin_location,
         quantity: request.quantity,
         product: request.product,
         warehouse: request.warehouse,
         notes: request.notes,
       });
-    } catch (error) {
+    } catch (error: any) {
+      // Normalize axios error into SapResponse so UI can show server-side details
       console.error('Error updating event:', error);
-      throw error;
+      const serverData = error?.response?.data;
+      const message = serverData?.detail || serverData?.message || serverData?.error || error.message || 'Unknown error';
+      return {
+        success: false,
+        error: String(message),
+        response_code: error?.response?.status ? String(error.response.status) : undefined,
+        response_message: serverData?.response_message || undefined,
+      };
     }
   }
 

@@ -10,6 +10,7 @@ from typing import Dict, List, Optional
 from datetime import datetime
 
 from models.validation import QueuedEvent, EventStatus, ValidationError
+from sap.udt_service import udt_service, UDTWriteError, UDTReadError
 from sap.models import ProductionEvent
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,7 @@ class ValidationQueue:
         """Get all events with a specific status."""
         return [e for e in self._events.values() if e.status == status]
     
-    def update_event(
+    async def update_event(
         self,
         doc_entry: int,
         bin_location: Optional[str] = None,
@@ -64,28 +65,65 @@ class ValidationQueue:
         product: Optional[str] = None,
         warehouse: Optional[str] = None,
         notes: Optional[str] = None,
+        production_order: Optional[str] = None,
     ) -> Optional[QueuedEvent]:
-        """Update event with user corrections."""
+        """Update event with user corrections and persist changes to SAP immediately.
+
+        This will attempt to PATCH the corresponding UDT record in SAP using DocEntry
+        as key. On success the SAP event is refreshed locally and the queued event
+        is updated. On failure a UDTWriteError is raised.
+        """
         event = self._events.get(doc_entry)
         if not event:
             logger.warning(f"Event not found for update: DocEntry={doc_entry}")
             return None
-        
+
+        # Prepare corrections payload for SAP
+        corrections = {}
         if bin_location is not None:
-            event.corrected_bin_location = bin_location
+            corrections['bin_location'] = bin_location
         if quantity is not None:
-            event.corrected_quantity = quantity
+            corrections['quantity'] = quantity
         if product is not None:
-            event.corrected_product = product
+            corrections['product'] = product
         if warehouse is not None:
-            event.corrected_warehouse = warehouse
+            corrections['warehouse'] = warehouse
+        if production_order is not None:
+            corrections['of_numdoc'] = production_order
         if notes is not None:
-            event.user_notes = notes
-        
+            corrections['notes'] = notes
+
+        # Attempt to persist corrections to SAP via UDT service
+        try:
+            refreshed, status_code, resp_text = await udt_service.update_event_fields(doc_entry, corrections)
+        except (UDTWriteError, UDTReadError) as e:
+            # Log and re-raise so caller can return an error to the user
+            logger.error(f"Failed to persist corrections to SAP for DocEntry={doc_entry}: {e}")
+            raise
+
+        # Update in-memory queued event with corrections and refreshed SAP data
+        if 'bin_location' in corrections:
+            event.corrected_bin_location = corrections.get('bin_location')
+        if 'quantity' in corrections:
+            event.corrected_quantity = corrections.get('quantity')
+        if 'product' in corrections:
+            event.corrected_product = corrections.get('product')
+        if 'of_numdoc' in corrections:
+            event.corrected_production_order = corrections.get('of_numdoc')
+        if 'warehouse' in corrections:
+            event.corrected_warehouse = corrections.get('warehouse')
+        if 'notes' in corrections:
+            event.user_notes = corrections.get('notes')
+
+        # Refresh the SAP event payload attached to the queued event
+        if refreshed is not None:
+            event.sap_event = refreshed
+
         event.updated_at = datetime.utcnow()
+
         logger.info(
-            f"✏️  Event updated: DocEntry={doc_entry} "
-            f"Bin={event.current_bin_location} Qty={event.current_quantity}"
+            f"✏️  Event updated and persisted to SAP: DocEntry={doc_entry} "
+            f"Bin={event.current_bin_location} Qty={event.current_quantity} HTTP={status_code}"
         )
         return event
     
@@ -101,6 +139,8 @@ class ValidationQueue:
         event.updated_at = datetime.utcnow()
         
         if status == EventStatus.APPROVED:
+            event.validated_at = datetime.utcnow()
+        if status == EventStatus.VALID:
             event.validated_at = datetime.utcnow()
         elif status == EventStatus.PROCESSED:
             event.processed_at = datetime.utcnow()

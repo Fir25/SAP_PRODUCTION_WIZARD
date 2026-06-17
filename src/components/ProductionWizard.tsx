@@ -105,7 +105,7 @@ export default function ProductionWizard() {
       // Production order filter
       if (filters.productionOrder) {
         filtered = filtered.filter(e =>
-          e.production_order.toLowerCase().includes(filters.productionOrder.toLowerCase())
+          (e.production_order || '').toLowerCase().includes((filters.productionOrder || '').toLowerCase())
         );
       }
 

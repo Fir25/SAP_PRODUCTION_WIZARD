@@ -69,11 +69,17 @@ export default function WizardStep3Correction({ event, onSave, onBack, onNext }:
         notes: corrections.comments,
       };
 
-      await fastApiService.updateEvent(updateRequest);
-      setValidationResult(null); // Reset validation after correction
-      onSave();
+      const resp = await fastApiService.updateEvent(updateRequest);
+      if (!resp || !resp.success) {
+        console.error('SAP update failed', resp?.error || resp?.response_message);
+        alert('Failed to save correction to SAP: ' + (resp?.error || resp?.response_message || 'Unknown'));
+      } else {
+        setValidationResult(null); // Reset validation after correction
+        onSave();
+      }
     } catch (error) {
       console.error('Error saving correction:', error);
+      alert('Error saving correction: ' + String(error));
     } finally {
       setSaving(false);
     }

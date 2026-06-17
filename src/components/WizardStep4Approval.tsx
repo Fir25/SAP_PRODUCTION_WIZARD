@@ -75,12 +75,32 @@ export default function WizardStep4Approval({ events, onBack, onNext }: WizardSt
       for (const eventId of selectedForApproval) {
         const event = events.find(e => e.id === eventId);
         try {
+          // Ensure the backend has validated this event before approval
+          try {
+            const v = await fastApiService.validateEvent(eventId);
+            if (v.status !== 'VALID') {
+              sapResults.push({
+                eventId,
+                success: false,
+                error: `Event not valid on server: ${JSON.stringify(v.errors || [])}`,
+              });
+              continue;
+            }
+          } catch (valErr) {
+            sapResults.push({
+              eventId,
+              success: false,
+              error: valErr instanceof Error ? valErr.message : 'Validation error',
+            });
+            continue;
+          }
+
           const request: ApproveEventRequest = {
             event_id: eventId,
             modified_quantity: event?.original_quantity || 0,
             notes: event?.notes || undefined,
           };
-          
+
           const response = await fastApiService.approveEvent(request);
           sapResults.push({
             eventId,
@@ -269,7 +289,12 @@ export default function WizardStep4Approval({ events, onBack, onNext }: WizardSt
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm font-medium text-slate-800 dark:text-slate-200">
-                        {event.production_order}
+                        <div>
+                          <div>{event.production_order || 'No Production Order'}</div>
+                          {event.best_production_order && event.best_production_order !== event.production_order && (
+                            <div className="text-xs text-slate-400 mt-1">Suggested: {event.best_production_order} ({event.production_order_source || 'released'})</div>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-sm font-medium text-slate-800 dark:text-slate-200">

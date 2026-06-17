@@ -85,7 +85,7 @@ export default function SapValidationWizard() {
   };
 
   const filteredEvents = pendingEvents.filter(event =>
-    event.production_order.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (event.production_order || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
     event.item_code.toLowerCase().includes(searchQuery.toLowerCase()) ||
     event.item_description.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -265,7 +265,7 @@ export default function SapValidationWizard() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-3 mb-2">
-                            <h3 className="font-bold text-slate-800 dark:text-white">{event.production_order}</h3>
+                            <h3 className="font-bold text-slate-800 dark:text-white">{event.production_order || 'No Production Order'}</h3>
                             <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
                               event.validation_rules.some(r => r.status === 'ERROR')
                                 ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'

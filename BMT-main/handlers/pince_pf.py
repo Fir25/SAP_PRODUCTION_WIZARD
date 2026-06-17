@@ -91,9 +91,10 @@ class PincePFHandler:
             f"AbsEntry:{bin_abs_entry} Whs:{warehouse}"
         )
 
-        # 3. OF ACTIF pour item_pf
+        # 3. OF ACTIF pour item_pf — prefer best match by event date
         try:
-            of = await of_service.get_best_of(item_pf)
+            ev_date = event.date if getattr(event, 'date', None) else None
+            of, meta = await of_service.get_best_of_for_event(item_pf, ev_date)
         except OFNotFoundError as e:
             raise ValueError(str(e)) from e
 

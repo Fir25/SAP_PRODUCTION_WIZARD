@@ -55,9 +55,10 @@ class SortieWagonHandler:
             f"AbsEntry:{bin_abs_entry} Whs:{warehouse}"
         )
 
-        # 2. Trouver l'OF Released pour item_sf
+        # 2. Trouver l'OF Released pour item_sf — prefer best match by event date
         try:
-            of = await of_service.get_best_of(config.item_sf)
+            ev_date = event.date if getattr(event, 'date', None) else None
+            of, meta = await of_service.get_best_of_for_event(config.item_sf, ev_date)
         except OFNotFoundError as e:
             raise ValueError(str(e)) from e
 

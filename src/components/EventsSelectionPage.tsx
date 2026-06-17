@@ -106,7 +106,7 @@ export default function EventsSelectionPage({ onEventsSelected }: EventsSelectio
     // OF filter
     if (ofFilter) {
       filtered = filtered.filter(e =>
-        e.production_order.toLowerCase().includes(ofFilter.toLowerCase())
+        (e.production_order || '').toLowerCase().includes(ofFilter.toLowerCase())
       );
     }
 
@@ -123,7 +123,7 @@ export default function EventsSelectionPage({ onEventsSelected }: EventsSelectio
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(e =>
         e.id.toLowerCase().includes(query) ||
-        e.production_order.toLowerCase().includes(query) ||
+        (e.production_order || '').toLowerCase().includes(query) ||
         e.item_code.toLowerCase().includes(query) ||
         e.item_description.toLowerCase().includes(query) ||
         e.machine_name.toLowerCase().includes(query) ||
@@ -451,7 +451,7 @@ export default function EventsSelectionPage({ onEventsSelected }: EventsSelectio
                         {formatDate(event.received_at)}
                       </td>
                       <td className="px-6 py-4 text-sm font-medium text-slate-800 dark:text-slate-200">
-                        {event.production_order}
+                        {event.production_order || 'No Production Order'}
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-sm font-medium text-slate-800 dark:text-slate-200">

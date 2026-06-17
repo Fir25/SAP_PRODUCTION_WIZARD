@@ -46,6 +46,7 @@ class QueuedEvent:
     corrected_bin_location: Optional[str] = None
     corrected_quantity: Optional[float] = None
     corrected_product: Optional[str] = None
+    corrected_production_order: Optional[str] = None
     corrected_warehouse: Optional[str] = None
     user_notes: Optional[str] = None
     
@@ -121,7 +122,7 @@ class QueuedEvent:
             "id": str(self.sap_event.doc_entry),
             "external_id": str(self.sap_event.doc_entry),
             "status": self.api_status,
-            "production_order": self.current_product,
+            "production_order": self.corrected_production_order or self.sap_event.of_numdoc or None,
             "item_code": self.current_product,
             "item_description": f"{self.current_product} — {self.sap_event.pulse}",
             "original_quantity": self.sap_event.quantity,

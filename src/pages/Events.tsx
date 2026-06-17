@@ -65,7 +65,7 @@ export default function Events({ onNavigate: _onNavigate }: Props) {
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter(e =>
-        e.production_order.toLowerCase().includes(q) ||
+        (e.production_order || '').toLowerCase().includes(q) ||
         e.item_code.toLowerCase().includes(q) ||
         e.item_description.toLowerCase().includes(q) ||
         e.machine_name.toLowerCase().includes(q) ||

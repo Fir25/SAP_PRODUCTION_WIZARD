@@ -192,7 +192,11 @@ export default function EventWizard({ event, onClose, onUpdated }: Props) {
                     <ClipboardCheck size={14} className="text-slate-500" />
                     <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Production</span>
                   </div>
-                  <InfoRow label="Order" value={event.production_order} mono />
+                  <InfoRow label="Order" value={event.production_order || 'No Production Order'} mono />
+                  <InfoRow label="Pulse Code" value={event.pulse_code || event.machine_id || 'Unknown'} mono />
+                  <InfoRow label="Pulse Name" value={event.pulse_name || '—'} mono />
+                  <InfoRow label="Rubrique" value={event.pulse_rubrique || '—'} mono />
+                  <InfoRow label="Unit" value={event.pulse_uom || 'PCS'} mono />
                   <InfoRow label="Type" value={eventTypeLabel[event.event_type] || event.event_type} />
                   <InfoRow label="Received" value={formatDate(event.received_at)} />
                 </div>

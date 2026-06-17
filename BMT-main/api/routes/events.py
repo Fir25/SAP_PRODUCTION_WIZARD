@@ -25,12 +25,18 @@ from pydantic import BaseModel
 
 from sap.udt_service import udt_service, UDTReadError, UDTWriteError
 from sap.models import ProductionEvent
+from sap.of_service import of_service
+from sap.session import sap_session
+from sap.config_service import config_service
 from core.config_resolver import config_resolver, ConfigNotFoundError
 from core.validation_queue import validation_queue
 from core.websocket_manager import websocket_manager
 from models.validation import EventStatus, ValidationError
 from handlers.pince_pf import pince_pf_handler
 from handlers.sortie_wagon import sortie_wagon_handler
+from core.dynamic_pulse_router import resolve_handler
+from handlers.generic_handlers import GenericProductionHandler
+import core.event_router as event_router
 
 logger = logging.getLogger(__name__)
 
@@ -45,13 +51,7 @@ async def _broadcast_queue_event(event):
     except Exception as e:
         logger.warning(f"WebSocket broadcast failed: {e}")
 
-# Pulse routing configuration (same as in core/event_router.py)
-PULSE_ROUTING = {
-    "PincePFV01": pince_pf_handler,
-    "PincePFV02": pince_pf_handler,
-    "PincePFE03": pince_pf_handler,  
-    "SortieWagon": sortie_wagon_handler,
-}
+# Pulse routing is loaded dynamically from core.event_router.PULSE_ROUTING
 
 
 class ApproveEventRequest(BaseModel):
@@ -83,16 +83,21 @@ class SapResponse(BaseModel):
     error: Optional[str] = None
 
 
-def map_production_event_to_api(event: ProductionEvent) -> dict:
+async def map_production_event_to_api(event: ProductionEvent) -> dict:
     """
     Map SAP ProductionEvent to frontend-compatible API format.
     
     Maps SAP UDT fields to the WmsEvent interface expected by the React frontend.
     """
-    # Determine event type based on pulse
-    if event.pulse == "SortieWagon":
+    # Determine event type based on dynamic routing (resolve handler dynamically)
+    try:
+        handler = await resolve_handler(event.pulse)
+    except Exception:
+        handler = None
+
+    if handler is sortie_wagon_handler:
         event_type = "PRODUCTION_RECEIPT"
-    elif event.pulse.startswith("PincePF"):
+    elif handler is pince_pf_handler:
         event_type = "MATERIAL_CONSUMPTION"
     else:
         event_type = "UNKNOWN"
@@ -113,13 +118,19 @@ def map_production_event_to_api(event: ProductionEvent) -> dict:
         {"rule": "USER_VALIDATED", "status": "OK" if event.is_valid_user == "Y" else "WARNING", "message": "User validation status"},
     ]
     
-    # Add pulse routing validation
-    if event.pulse in PULSE_ROUTING:
-        validation_rules.append({"rule": "PULSE_ROUTING", "status": "OK",
-                       "message": f"Pulse '{event.pulse}' → handler disponible"})
-    else:
+    # Add pulse routing validation (clear error if no handler assigned)
+    # Resolve handler and provide rule status
+    try:
+        h = await resolve_handler(event.pulse)
+        if isinstance(h, GenericProductionHandler):
+            validation_rules.append({"rule": "PULSE_ROUTING", "status": "WARNING",
+                           "message": f"Pulse '{event.pulse}' resolved to GenericHandler (no specialized logic)"})
+        else:
+            validation_rules.append({"rule": "PULSE_ROUTING", "status": "OK",
+                           "message": f"Pulse '{event.pulse}' → handler disponible"})
+    except Exception:
         validation_rules.append({"rule": "PULSE_ROUTING", "status": "WARNING",
-                       "message": f"Pulse '{event.pulse}' non mappé dans le routeur"})
+                       "message": f"Pulse '{event.pulse}' non supporté — fallback GenericHandler utilisé"})
 
     # Add prior remark validation
     if event.remark:
@@ -129,12 +140,14 @@ def map_production_event_to_api(event: ProductionEvent) -> dict:
     # Combine date and time for received_at with robust parsing
     received_at = _iso(event.date, event.time)
     
+    production_order_val = event.of_numdoc if getattr(event, 'of_numdoc', None) else None
+
     return {
         "id": str(event.doc_entry),
         "external_id": f"SAP-{event.doc_entry}",
         "event_type": event_type,
         "status": status,
-        "production_order": f"OF-{event.product}",
+        "production_order": production_order_val,
         "item_code": event.product,
         "item_description": f"Product {event.product}",
         "original_quantity": event.quantity,
@@ -180,27 +193,33 @@ def _iso(date_str: str, time_str: str = "") -> str:
         return datetime.now(timezone.utc).isoformat()
 
 
-def _pulse_to_event_type(pulse: str) -> str:
-    """Map pulse code to event type."""
-    if pulse == "SortieWagon":
+async def _pulse_to_event_type(pulse: str) -> str:
+    """Map pulse code to event type by resolving handler."""
+    try:
+        handler = await resolve_handler(pulse)
+    except Exception:
+        handler = None
+    if handler is sortie_wagon_handler:
         return "PRODUCTION_RECEIPT"
-    elif pulse.startswith("PincePF"):
+    if handler is pince_pf_handler:
         return "MATERIAL_CONSUMPTION"
-    else:
-        return "UNKNOWN"
+    return "UNKNOWN"
 
 
-def _pulse_label(pulse: str) -> str:
-    """Get human-readable label for pulse."""
-    if pulse == "SortieWagon":
+async def _pulse_label(pulse: str) -> str:
+    """Get human-readable label for pulse by resolving handler."""
+    try:
+        handler = await resolve_handler(pulse)
+    except Exception:
+        handler = None
+    if handler is sortie_wagon_handler:
         return "Sortie Wagon"
-    elif pulse.startswith("PincePF"):
+    if handler is pince_pf_handler:
         return f"Pince PF ({pulse})"
-    else:
-        return pulse
+    return pulse
 
 
-def _build_validation_rules(ev: ProductionEvent) -> list[dict[str, str]]:
+async def _build_validation_rules(ev: ProductionEvent) -> list[dict[str, str]]:
     """Build validation rules from SAP event data."""
     rules = [
         {"rule": "PRODUCT_EXISTS", "status": "OK", "message": f"Product {ev.product} exists in SAP"},
@@ -212,10 +231,14 @@ def _build_validation_rules(ev: ProductionEvent) -> list[dict[str, str]]:
     else:
         rules.append({"rule": "BIN_LOCATION", "status": "WARNING", "message": "Bin location not specified"})
     
-    if ev.pulse in PULSE_ROUTING:
-        rules.append({"rule": "PULSE_ROUTING", "status": "OK", "message": f"Pulse '{ev.pulse}' has handler"})
-    else:
-        rules.append({"rule": "PULSE_ROUTING", "status": "WARNING", "message": f"Pulse '{ev.pulse}' not mapped"})
+    try:
+        h = await resolve_handler(ev.pulse)
+        if isinstance(h, GenericProductionHandler):
+            rules.append({"rule": "PULSE_ROUTING", "status": "WARNING", "message": f"Pulse '{ev.pulse}' mapped to GenericHandler"})
+        else:
+            rules.append({"rule": "PULSE_ROUTING", "status": "OK", "message": f"Pulse '{ev.pulse}' has handler"})
+    except Exception:
+        rules.append({"rule": "PULSE_ROUTING", "status": "WARNING", "message": f"Pulse '{ev.pulse}' not mapped (error resolving)"})
     
     if ev.is_valid_user == "Y":
         rules.append({"rule": "USER_VALIDATION", "status": "OK", "message": "Validated by user"})
@@ -258,7 +281,7 @@ def _event_to_dict(ev: ProductionEvent) -> dict[str, Any]:
         "status":           "PENDING",
 
         # Production info
-        "production_order": ev.product,           # closest analog to an OF ref
+        "production_order": ev.of_numdoc if getattr(ev, 'of_numdoc', None) else None,
         "item_code":        ev.product,
         "item_description": f"{ev.product} — {_pulse_label(ev.pulse)}",
 
@@ -327,13 +350,45 @@ async def get_pending_events():
         logger.info(
             f"📋 /events/pending — {len(pending_events)} événement(s) en attente de validation"
         )
+        # Build lookup of pulse metadata from SAP
+        pulses = await config_service.get_pulses()
+        pulses_lookup = {p.get('Code'): p for p in pulses}
+
+        events = []
         for ev in pending_events:
+            pulse_code = ev.sap_event.pulse
+            pulse_info = pulses_lookup.get(pulse_code)
             logger.info(
                 f"   ↳ DocEntry={ev.doc_entry} | Status={ev.status.value} "
-                f"| Produit={ev.current_product} | Pulse={ev.sap_event.pulse}"
+                f"| Produit={ev.current_product} | Pulse={pulse_code}"
             )
 
-        events = [ev.to_dict() for ev in pending_events]
+            ev_dict = ev.to_dict()
+            # attach pulse metadata for frontend
+            if pulse_info:
+                ev_dict['pulse_code'] = pulse_info.get('Code')
+                ev_dict['pulse_name'] = pulse_info.get('Name')
+                ev_dict['pulse_rubrique'] = pulse_info.get('U_Rubrique') or pulse_info.get('u_rubrique')
+                ev_dict['pulse_uom'] = pulse_info.get('U_uom') or pulse_info.get('u_uom')
+            else:
+                ev_dict['pulse_code'] = pulse_code
+                ev_dict['pulse_name'] = None
+                ev_dict['pulse_rubrique'] = None
+                ev_dict['pulse_uom'] = None
+
+            # Enrich with best OF suggestion (non-blocking)
+            try:
+                ev_date = ev.sap_event.date if getattr(ev.sap_event, 'date', None) else None
+                best_of, meta = await of_service.get_best_of_for_event(ev.sap_event.product, ev_date)
+                ev_dict["best_production_order"] = str(best_of.doc_num) if best_of else None
+                ev_dict["production_order_source"] = "best_match" if meta.get("reason") == "closest_by_date" else "released"
+                ev_dict["best_of_meta"] = meta
+            except Exception:
+                ev_dict["best_production_order"] = None
+                ev_dict["production_order_source"] = None
+
+            events.append(ev_dict)
+
         return events
 
     except Exception as e:
@@ -402,15 +457,70 @@ async def update_event(event_id: str, request: UpdateEventRequest):
     )
 
     try:
-        # Update event in validation queue
-        updated_event = validation_queue.update_event(
-            doc_entry=doc_entry,
-            bin_location=request.bin_location,
-            quantity=request.quantity,
-            product=request.product,
-            warehouse=request.warehouse,
-            notes=request.notes,
-        )
+        # Validate provided production_order (OF) exists in SAP if user supplied one
+        if request.production_order:
+            async with await sap_session.get_client() as client:
+                found = False
+                # Try numeric AbsoluteEntry first (AbsoluteEntry is the internal key)
+                if str(request.production_order).isdigit():
+                    try:
+                        resp = await client.get(f"/ProductionOrders({int(request.production_order)})")
+                    except Exception as e:
+                        logger.exception(f"SAP request failed when checking AbsoluteEntry={request.production_order}")
+                        raise HTTPException(status_code=502, detail=f"Erreur vérification OF dans SAP: {e}")
+
+                    if resp.status_code == 200:
+                        found = True
+                    elif resp.status_code not in (404,):
+                        logger.error(
+                            f"Unexpected SAP response when checking AbsoluteEntry={request.production_order}: HTTP {resp.status_code} {resp.text}"
+                        )
+                        raise HTTPException(status_code=502, detail=f"Erreur vérification OF dans SAP: HTTP {resp.status_code} {resp.text}")
+
+                if not found:
+                    # Try by DocumentNumber filter (DocumentNumber is numeric in SAP)
+                    try:
+                        if str(request.production_order).isdigit():
+                            filter_q = f"$filter=DocumentNumber eq {int(request.production_order)}"
+                        else:
+                            filter_q = f"$filter=DocumentNumber eq '{request.production_order}'"
+                        resp = await client.get(f"/ProductionOrders?{filter_q}")
+                    except Exception as e:
+                        logger.exception(f"SAP request failed when searching ProductionOrders by DocumentNumber='{request.production_order}'")
+                        raise HTTPException(status_code=502, detail=f"Erreur vérification OF dans SAP: {e}")
+
+                    if resp.status_code == 200:
+                        try:
+                            data = resp.json()
+                        except Exception as e:
+                            logger.exception(f"Failed to parse SAP response JSON when checking DocumentNumber='{request.production_order}': {resp.text}")
+                            raise HTTPException(status_code=502, detail=f"Erreur vérification OF dans SAP: invalid JSON response: {resp.text}")
+
+                        if data.get('value'):
+                            found = True
+                    else:
+                        logger.error(
+                            f"Unexpected SAP response when searching DocumentNumber='{request.production_order}': HTTP {resp.status_code} {resp.text}"
+                        )
+                        raise HTTPException(status_code=502, detail=f"Erreur vérification OF dans SAP: HTTP {resp.status_code} {resp.text}")
+
+                if not found:
+                    raise HTTPException(status_code=422, detail=f"Production Order '{request.production_order}' not found in SAP")
+
+        # Update event in validation queue (persist corrections to SAP)
+        try:
+            updated_event = await validation_queue.update_event(
+                doc_entry=doc_entry,
+                bin_location=request.bin_location,
+                quantity=request.quantity,
+                product=request.product,
+                warehouse=request.warehouse,
+                production_order=request.production_order,
+                notes=request.notes,
+            )
+        except UDTWriteError as e:
+            logger.error(f"SAP update failed for DocEntry={doc_entry}: {e}")
+            raise HTTPException(status_code=502, detail=str(e))
         
         if updated_event is None:
             raise HTTPException(
@@ -635,7 +745,9 @@ async def approve_event(event_id: str, request: ApproveEventRequest):
         if request.notes is not None:
             queued_event.user_notes = request.notes
         
-        # 4. Mark as approved
+        # 4. Mark as approved (log old/new status and user action)
+        old_status = queued_event.status
+        logger.info(f"User action=APPROVE — DocEntry={doc_entry} OldStatus={old_status.value} NewStatus={EventStatus.APPROVED.value}")
         validation_queue.set_status(doc_entry, EventStatus.APPROVED)
         
         # 5. Execute SAP posting via handler
@@ -657,14 +769,9 @@ async def approve_event(event_id: str, request: ApproveEventRequest):
                 detail=f"Config produit introuvable: {e}"
             )
         
-        # Route to handler
-        handler = PULSE_ROUTING.get(event_to_post.pulse)
-        if handler is None:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Pulse '{event_to_post.pulse}' non supporté — aucun handler disponible"
-            )
-        
+        # Route to handler (resolve dynamically)
+        handler = await resolve_handler(event_to_post.pulse)
+        logger.info(f"Resolved handler for Pulse={event_to_post.pulse}: {handler.__class__.__name__ if hasattr(handler,'__class__') else getattr(handler,'__name__',str(handler))}")
         await handler.handle(event_to_post, config)
         logger.info(f"   Handler exécuté pour DocEntry={doc_entry}")
 
@@ -738,7 +845,7 @@ async def reject_event(event_id: str, request: RejectEventRequest):
 
     try:
         # Update event with rejection notes
-        validation_queue.update_event(
+        await validation_queue.update_event(
             doc_entry=doc_entry,
             notes=f"REJETÉ: {request.rejection_reason}"
         )
@@ -789,15 +896,24 @@ async def _validate_event_full(queued_event) -> list[ValidationError]:
         ))
         return errors
     
-    # ROUTING CHECK
-    handler = PULSE_ROUTING.get(event_to_validate.pulse)
-    if handler is None:
+    # ROUTING CHECK — resolve dynamically and convert missing mapping into a WARNING via Generic handler
+    try:
+        handler = await resolve_handler(event_to_validate.pulse)
+    except Exception as e:
         errors.append(ValidationError(
             field="pulse",
-            message=f"Pulse non supporté: {event_to_validate.pulse}",
+            message=f"Erreur résolution pulse: {e}",
             severity="ERROR"
         ))
         return errors
+
+    # If resolved to generic fallback, warn but do not fail validation
+    if isinstance(handler, GenericProductionHandler):
+        errors.append(ValidationError(
+            field="pulse",
+            message=f"Pulse non spécialisé: {event_to_validate.pulse} (utilisation GenericHandler)",
+            severity="WARNING"
+        ))
     
     # VALIDATION CHECKS (without posting)
     try:

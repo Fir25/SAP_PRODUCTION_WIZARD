@@ -33,6 +33,7 @@ class ProductionEvent:
     is_valid_user: str = "N"  # U_Is_Valid_User — Y si validé par l'utilisateur
     is_interfaced: str = "N"  # U_Is_Interfaced  — N=à traiter, Y=traité
     remark:        str = ""   # Remark SAP (champ libre, 50 car. max)
+    of_numdoc:     Optional[str] = None   # Ordre de fabrication lié (ProductionOrder.DocEntry)
 
     @property
     def is_sortie_wagon(self) -> bool:

@@ -15,7 +15,7 @@ from fastapi.websockets import WebSocketDisconnect
 from contextlib import asynccontextmanager
 from config.settings import settings
 from config.logging_config import setup_logging
-from core.event_router import event_router
+from core.event_router import event_router, load_pulse_routing
 from core.websocket_manager import websocket_manager
 from sap.session import sap_session
 from api.routes.events import router as events_router
@@ -32,6 +32,11 @@ async def lifespan(app: FastAPI):
     # Try to connect to SAP, but don't fail if unavailable (development mode)
     try:
         await sap_session.login()
+        # Load SAP configuration (pulses, routing) before starting router
+        try:
+            await load_pulse_routing()
+        except Exception:
+            logger.warning("Failed to load pulse routing at startup; continuing")
         await event_router.start()
     except Exception as e:
         logger.warning(f"SAP connection failed (running in API-only mode): {e}")

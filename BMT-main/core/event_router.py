@@ -20,6 +20,8 @@ from models.validation import ValidationError, EventStatus
 
 from handlers.pince_pf import pince_pf_handler
 from handlers.sortie_wagon import sortie_wagon_handler
+from sap.config_service import config_service
+from core.dynamic_pulse_router import build_routing as build_dynamic_routing
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +31,28 @@ POLLING_INTERVAL_SECONDS = 10
 # =========================
 # ROUTING PRINCIPAL
 # =========================
-PULSE_ROUTING = {
-    "PincePFV01": pince_pf_handler,
-    "PincePFV02": pince_pf_handler,
-    "PincePFE03": pince_pf_handler,  
-    "SortieWagon": sortie_wagon_handler,
-}
+PULSE_ROUTING = {}
+
+
+async def load_pulse_routing():
+    """Load pulse definitions from SAP and build routing map.
+
+    Pulse table is expected to contain a Type column with values like
+    'PINCE_PF' or 'SORTIE_WAGON' which determine the handler.
+    """
+    try:
+        pulses = await config_service.get_pulses()
+        logger.info(f"Loaded {len(pulses)} pulses from SAP")
+        # build dynamic routing using the dedicated resolver
+        routing = build_dynamic_routing(pulses)
+        global PULSE_ROUTING
+        PULSE_ROUTING = routing
+        logger.info(f"Loaded {len(PULSE_ROUTING)} routing rules from SAP (dynamic)")
+        if PULSE_ROUTING:
+            assignments = ", ".join([f"{k}:{('PINCE_PF' if v is pince_pf_handler else 'SORTIE_WAGON' if v is sortie_wagon_handler else 'UNKNOWN')}" for k, v in PULSE_ROUTING.items()])
+            logger.info(f"Pulse routing assignments: {assignments}")
+    except Exception as e:
+        logger.exception(f"Failed to load pulse routing from SAP: {e}")
 
 class EventRouter:
 

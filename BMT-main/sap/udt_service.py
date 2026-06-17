@@ -127,6 +127,65 @@ class UDTService:
                 f"Impossible de mettre à jour DocEntry={doc_entry} "
                 f"(HTTP {response.status_code}): {response.text}"
             )
+
+    async def update_event_fields(self, doc_entry: int, corrections: dict) -> tuple["ProductionEvent", int, str]:
+        """
+        Patch corrected fields into the SAP UDT for the given DocEntry.
+
+        Returns a tuple of (refreshed ProductionEvent, http_status_code, response_text).
+        Raises UDTWriteError on non-2xx responses.
+        """
+        # Read current SAP values for logging
+        current = await self.get_event_by_doc_entry(doc_entry)
+        if current is None:
+            raise UDTReadError(f"Événement DocEntry={doc_entry} introuvable dans SAP")
+
+        # Build payload mapping local correction keys to SAP field names
+        payload = {}
+        if 'quantity' in corrections and corrections['quantity'] is not None:
+            payload['U_Quantity'] = corrections['quantity']
+        if 'bin_location' in corrections and corrections['bin_location'] is not None:
+            payload['U_BinLocation'] = corrections['bin_location']
+        if 'product' in corrections and corrections['product'] is not None:
+            payload['U_Product'] = corrections['product']
+        if 'warehouse' in corrections and corrections['warehouse'] is not None:
+            payload['U_Warehouse'] = corrections['warehouse']
+        if 'of_numdoc' in corrections and corrections['of_numdoc'] is not None:
+            payload['U_OF_numdoc'] = corrections['of_numdoc']
+        if 'notes' in corrections and corrections['notes'] is not None:
+            payload['Remark'] = str(corrections['notes'])[:REMARK_MAX_LEN]
+
+        if not payload:
+            # Nothing to update
+            return (current, 204, "No changes")
+
+        # Log old vs new for audit
+        logger.info(
+            f"🔁 SAP patch request — DocEntry={doc_entry} | OldValues={{'U_Quantity': {current.quantity}, 'U_BinLocation': '{current.bin_location}', 'U_Product': '{current.product}', 'Remark': '{current.remark}'}} | Payload={payload}"
+        )
+
+        async with await sap_session.get_client() as client:
+            response = await client.patch(
+                f"/{TABLE_EVENTS}({doc_entry})",
+                json=payload,
+            )
+
+        status = response.status_code
+        text = response.text
+
+        if status not in (200, 204):
+            logger.error(
+                f"❌ SAP patch failed — DocEntry={doc_entry} HTTP {status} Response={text}"
+            )
+            raise UDTWriteError(f"SAP patch failed (HTTP {status}): {text}")
+
+        logger.info(
+            f"✅ SAP patch succeeded — DocEntry={doc_entry} HTTP {status} Response={text}"
+        )
+
+        # Refresh event from SAP
+        refreshed = await self.get_event_by_doc_entry(doc_entry)
+        return (refreshed, status, text)
     @staticmethod
     def safe_str(value):
         if value is None:
@@ -147,6 +206,9 @@ class UDTService:
             is_valid_user=UDTService.safe_str(raw.get("U_Is_Valid_User") or "N"),
             is_interfaced=UDTService.safe_str(raw.get("U_Is_Interfaced") or "N"),
             remark=UDTService.safe_str(raw.get("Remark") or ""),
+            of_numdoc=UDTService.safe_str(
+                raw.get("U_OF_numdoc") or raw.get("U_of_numdoc") or None
+            ),
         )
 
 class UDTReadError(Exception):
