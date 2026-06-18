@@ -13,6 +13,7 @@ import asyncio
 import logging
 
 from sap.udt_service import udt_service, UDTReadError
+from sap.of_service import of_service, OFNotFoundError
 from core.config_resolver import config_resolver, ConfigNotFoundError
 from core.validation_queue import validation_queue
 from core.websocket_manager import websocket_manager
@@ -114,6 +115,47 @@ class EventRouter:
             logger.info(
                 f"✅ DocEntry={event.doc_entry} added to queue - PENDING_REVIEW (awaiting human correction)"
             )
+
+            # Attempt to auto-suggest and persist Best OF to SAP (non-blocking)
+            try:
+                ev_date = event.date if getattr(event, 'date', None) else None
+                ev_time = event.time if getattr(event, 'time', None) else None
+
+                # Resolve Item_SF from product configuration
+                logger.info(f"Searching OF for Product={event.product}")
+                item_sf = None
+                try:
+                    item_sf = await config_service.get_item_sf(event.product)
+                except Exception as e:
+                    logger.debug(f"Error fetching Item_SF for Product={event.product}: {e}")
+
+                if item_sf:
+                    logger.info(f"Resolved Item_SF={item_sf}")
+                    search_item = item_sf
+                    logger.info(f"Searching Released OF for ItemCode={search_item}")
+                else:
+                    logger.warning(f"No Item_SF configuration found for Product={event.product}")
+                    search_item = event.product
+                    logger.info(f"Searching Released OF for ItemCode={search_item} (fallback to Product)")
+
+                res = await of_service.get_best_of_for_event(search_item, ev_date, ev_time)
+                best = res.get('best_of')
+                meta = res.get('metadata', {})
+                if best:
+                    # Persist U_OF_numdoc into SAP for this DocEntry
+                    try:
+                        await udt_service.update_event_fields(event.doc_entry, {'of_numdoc': str(best.doc_num)})
+                        # Refresh queued event SAP payload
+                        queued_event.sap_event = await udt_service.get_event_by_doc_entry(event.doc_entry)
+                        queued_event.corrected_production_order = queued_event.sap_event.of_numdoc
+                        logger.info(f"Auto-filled U_OF_numdoc={best.doc_num} for DocEntry={event.doc_entry}")
+                    except Exception as e:
+                        logger.warning(f"Could not persist best OF for DocEntry={event.doc_entry}: {e}")
+            except OFNotFoundError:
+                # No released OFs found — ignore
+                pass
+            except Exception as e:
+                logger.warning(f"Error computing best OF for DocEntry={event.doc_entry}: {e}")
 
             # CRITICAL: DO NOT mark as interfaced in SAP yet
             # Events must remain visible in SAP until human approval

@@ -57,6 +57,7 @@ async def _broadcast_queue_event(event):
 class ApproveEventRequest(BaseModel):
     modified_quantity: float
     notes: Optional[str] = None
+    selected_of: Optional[str] = None
 
 
 class RejectEventRequest(BaseModel):
@@ -379,9 +380,12 @@ async def get_pending_events():
             # Enrich with best OF suggestion (non-blocking)
             try:
                 ev_date = ev.sap_event.date if getattr(ev.sap_event, 'date', None) else None
-                best_of, meta = await of_service.get_best_of_for_event(ev.sap_event.product, ev_date)
+                ev_time = ev.sap_event.time if getattr(ev.sap_event, 'time', None) else None
+                res = await of_service.get_best_of_for_event(ev.sap_event.product, ev_date, ev_time)
+                best_of = res.get('best_of')
+                meta = res.get('metadata', {})
                 ev_dict["best_production_order"] = str(best_of.doc_num) if best_of else None
-                ev_dict["production_order_source"] = "best_match" if meta.get("reason") == "closest_by_date" else "released"
+                ev_dict["production_order_source"] = "best_match" if meta.get("reason") == "closest_by_datetime" else "released"
                 ev_dict["best_of_meta"] = meta
             except Exception:
                 ev_dict["best_production_order"] = None
@@ -744,6 +748,16 @@ async def approve_event(event_id: str, request: ApproveEventRequest):
             queued_event.corrected_quantity = request.modified_quantity
         if request.notes is not None:
             queued_event.user_notes = request.notes
+
+        # If user provided a selected OF, persist it immediately to SAP and queue
+        if getattr(request, 'selected_of', None):
+            try:
+                await validation_queue.update_event(doc_entry, production_order=request.selected_of)
+                # refresh queued_event reference
+                queued_event = validation_queue.get_event(doc_entry)
+                logger.info(f"User selected OF={request.selected_of} persisted for DocEntry={doc_entry}")
+            except Exception as e:
+                logger.warning(f"Failed to persist selected OF for DocEntry={doc_entry}: {e}")
         
         # 4. Mark as approved (log old/new status and user action)
         old_status = queued_event.status

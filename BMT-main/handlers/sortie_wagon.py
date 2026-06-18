@@ -58,7 +58,20 @@ class SortieWagonHandler:
         # 2. Trouver l'OF Released pour item_sf — prefer best match by event date
         try:
             ev_date = event.date if getattr(event, 'date', None) else None
-            of, meta = await of_service.get_best_of_for_event(config.item_sf, ev_date)
+            ev_time = event.time if getattr(event, 'time', None) else None
+            # If event already contains an of_numdoc selected, try to honor it
+            if getattr(event, 'of_numdoc', None):
+                try:
+                    candidate_ofs = await of_service.get_released_ofs(config.item_sf)
+                    of = next((o for o in candidate_ofs if str(o.doc_num) == str(event.of_numdoc) or str(o.abs_entry) == str(event.of_numdoc)), None)
+                    meta = {"reason": "selected_by_event"} if of else {}
+                except Exception:
+                    of = None
+                    meta = {}
+            else:
+                res = await of_service.get_best_of_for_event(config.item_sf, ev_date, ev_time)
+                of = res.get('best_of')
+                meta = res.get('metadata', {})
         except OFNotFoundError as e:
             raise ValueError(str(e)) from e
 

@@ -21,7 +21,25 @@ class SAPConfigService:
         self._cache: Dict[str, Any] = {}
         self._ts: Dict[str, float] = {}
         self._ttl = ttl
+    async def get_item_sf(self, product_code: str) -> str | None:
+        """Return the configured Item_SF (semi-finished ItemCode) for a given Product.
 
+        Tries the @BMT_PROD/BMT_PROD configuration table where U_Product -> U_Item_SF is stored.
+        Returns None if no mapping is found.
+        """
+        # Try the product configuration table used by core.config_resolver
+        filter_q = f"$filter=U_Product eq '{product_code}'"
+        # Try both table name variants (with and without @)
+        for table in ("BMT_PROD", "@BMT_PROD"):
+            try:
+                rows = await self._fetch_table(table, select="U_Product,U_Item_SF", filter_q=filter_q)
+                if rows:
+                    val = rows[0].get("U_Item_SF") or rows[0].get("Item_SF")
+                    return val
+            except Exception:
+                # Don't fail hard here; return None below if not found
+                continue
+        return None
     async def _fetch_table(self, table: str, select: Optional[str] = None, filter_q: Optional[str] = None) -> List[dict]:
         q = ""
         if select:

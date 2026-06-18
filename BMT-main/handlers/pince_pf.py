@@ -94,7 +94,20 @@ class PincePFHandler:
         # 3. OF ACTIF pour item_pf — prefer best match by event date
         try:
             ev_date = event.date if getattr(event, 'date', None) else None
-            of, meta = await of_service.get_best_of_for_event(item_pf, ev_date)
+            ev_time = event.time if getattr(event, 'time', None) else None
+            # Honor event.of_numdoc if provided
+            if getattr(event, 'of_numdoc', None):
+                try:
+                    candidate_ofs = await of_service.get_released_ofs(item_pf)
+                    of = next((o for o in candidate_ofs if str(o.doc_num) == str(event.of_numdoc) or str(o.abs_entry) == str(event.of_numdoc)), None)
+                    meta = {"reason": "selected_by_event"} if of else {}
+                except Exception:
+                    of = None
+                    meta = {}
+            else:
+                res = await of_service.get_best_of_for_event(item_pf, ev_date, ev_time)
+                of = res.get('best_of')
+                meta = res.get('metadata', {})
         except OFNotFoundError as e:
             raise ValueError(str(e)) from e
 

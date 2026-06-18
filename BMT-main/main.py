@@ -19,6 +19,7 @@ from core.event_router import event_router, load_pulse_routing
 from core.websocket_manager import websocket_manager
 from sap.session import sap_session
 from api.routes.events import router as events_router
+from api.routes.ofs import router as ofs_router
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -77,6 +78,7 @@ app.add_middleware(
 
 # Include API routes
 app.include_router(events_router)
+app.include_router(ofs_router)
 
 
 @app.websocket("/ws/events")

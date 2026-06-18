@@ -58,82 +58,125 @@ class OFService:
         )
         return best
 
-    def choose_best_of(self, event_date: str | None, ofs: list[ProductionOrder]) -> tuple[ProductionOrder | None, dict]:
+    def choose_best_of(self, event_date: str | None, event_time: str | None, ofs: list[ProductionOrder]) -> tuple[ProductionOrder | None, dict]:
         """
-        Choose the best OF based on proximity of creation date to the event_date.
-        Returns (best_of, metadata) where metadata contains selection reason and date diffs.
+        Choose the best OF based on proximity of creation datetime to the event datetime.
+        Returns (best_of, metadata) where metadata contains selection reason and minute diffs.
         """
         metadata: dict = {"candidates": [], "selected": None, "reason": None}
         if not ofs:
             metadata["reason"] = "no_candidates"
             return (None, metadata)
 
-        # Parse event_date to comparable YYYY-MM-DD if provided
+        # Build event datetime from date and time if available
+        from datetime import datetime
+
+        event_dt = None
         try:
             if event_date:
-                ev_date = event_date[:10]
-            else:
-                ev_date = None
+                # Try combine date + time when provided
+                if event_time:
+                    combined = f"{event_date} {event_time}"
+                    try:
+                        event_dt = datetime.fromisoformat(combined)
+                    except Exception:
+                        # Try common SAP formats
+                        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d %H%M%S", "%Y-%m-%d %H%M"):
+                            try:
+                                event_dt = datetime.strptime(combined, fmt)
+                                break
+                            except Exception:
+                                continue
+                else:
+                    try:
+                        event_dt = datetime.fromisoformat(event_date)
+                    except Exception:
+                        try:
+                            event_dt = datetime.strptime(event_date[:19], "%Y-%m-%dT%H:%M:%S")
+                        except Exception:
+                            event_dt = None
         except Exception:
-            ev_date = None
+            event_dt = None
 
         best = None
-        best_diff = None
+        best_diff_min = None
         for o in ofs:
-            # Creation date may be in various formats; take first 10 chars
-            o_date = (o.create_date or '')[:10]
-            diff = None
-            if ev_date and o_date:
-                try:
-                    from datetime import datetime
-                    d_ev = datetime.fromisoformat(ev_date)
-                    d_o = datetime.fromisoformat(o_date)
-                    diff = abs((d_ev - d_o).days)
-                except Exception:
-                    diff = None
+            # Creation date may include time; try to parse full datetime
+            o_dt = None
+            try:
+                if o.create_date:
+                    # Accept both date and datetime strings
+                    try:
+                        o_dt = datetime.fromisoformat(o.create_date)
+                    except Exception:
+                        # Try common formats
+                        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+                            try:
+                                o_dt = datetime.strptime(o.create_date[:19], fmt)
+                                break
+                            except Exception:
+                                continue
+            except Exception:
+                o_dt = None
+
+            diff_min = None
+            if event_dt and o_dt:
+                diff_min = abs(int((event_dt - o_dt).total_seconds() / 60))
 
             metadata["candidates"].append({
                 "abs_entry": o.abs_entry,
                 "doc_num": o.doc_num,
-                "create_date": o_date,
-                "diff_days": diff,
+                "create_date": o.create_date,
+                "diff_minutes": diff_min,
             })
 
-            if diff is None:
-                # fallback to first available
+            if diff_min is None:
+                # fallback to latest document number if no datetime available
                 if best is None:
                     best = o
-                    best_diff = diff
+                    best_diff_min = diff_min
             else:
-                if best_diff is None or (diff < best_diff):
+                if best_diff_min is None or (diff_min < best_diff_min):
                     best = o
-                    best_diff = diff
+                    best_diff_min = diff_min
 
         if best is None:
             best = ofs[0]
             metadata["reason"] = "fallback_latest"
         else:
-            metadata["reason"] = "closest_by_date"
+            metadata["reason"] = "closest_by_datetime"
 
-        metadata["selected"] = {"abs_entry": best.abs_entry, "doc_num": best.doc_num, "diff_days": best_diff}
+        metadata["selected"] = {"abs_entry": best.abs_entry, "doc_num": best.doc_num, "diff_minutes": best_diff_min}
         return (best, metadata)
 
-    async def get_best_of_for_event(self, item_code: str, event_date: str | None) -> tuple[ProductionOrder, dict]:
+    async def get_best_of_for_event(self,
+                                    item_code: str,
+                                    event_date: str | None,
+                                    event_time: str | None,) -> dict:
         """
-        Fetch released OFs for given item_code and choose the best match for the provided event_date.
-        Returns (ProductionOrder, metadata).
+        Fetch released OFs for given item_code and choose the best match for the provided event datetime.
+        Returns a dict: {"best_of": ProductionOrder or None, "metadata": {...}}
         """
         ofs = await self.get_released_ofs(item_code)
         if not ofs:
-            raise OFNotFoundError(f"Aucun OF Released trouvé pour ItemCode='{item_code}'")
+            return {"best_of": None, "metadata": {"reason": "no_candidates"}}
 
-        best, metadata = self.choose_best_of(event_date, ofs)
+        best, metadata = self.choose_best_of(event_date, event_time, ofs)
 
-        logger.info(
-            f"   OF best-match — Item={item_code} Selected={getattr(best, 'doc_num', None)} "
-            f"Reason={metadata.get('reason')} Diff={metadata.get('selected', {}).get('diff_days') if metadata.get('selected') else None}"
-        )
-        return (best, metadata)
+        # Detailed logging
+        logger.info(f"Event Date: {event_date} Event Time: {event_time}")
+        for c in metadata.get("candidates", []):
+            logger.info(f"Candidate OF: DocNum={c.get('doc_num')} Create={c.get('create_date')} DiffMin={c.get('diff_minutes')}")
+
+        if best:
+            logger.info(
+                f"   Selected OF — Item={item_code} DocNum={getattr(best, 'doc_num', None)} "
+                f"Reason={metadata.get('reason')} DiffMin={metadata.get('selected', {}).get('diff_minutes') if metadata.get('selected') else None}"
+            )
+        else:
+            logger.info(f"   No OF selected for Item={item_code}")
+
+        return {"best_of": best, "metadata": metadata}
 
     def invalidate_cache(self, item_code: str | None = None) -> None:
         if item_code:
